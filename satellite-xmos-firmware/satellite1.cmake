@@ -19,6 +19,14 @@ foreach(FFVA_AP ${FFVA_PIPELINES_INT})
       list(APPEND FFVA_INT_COMPILE_DEFINITIONS appconfPIPELINE_BYPASS=0)
     endif()
 
+    # Four-microphone pipelines need the board configuration that decodes all
+    # four PDM microphones; every other pipeline keeps the 2-mic board.
+    if(${FFVA_AP} MATCHES "_4mic")
+      set(BOARD_LIB fph::ffva::satellite1_4mic)
+    else()
+      set(BOARD_LIB fph::ffva::satellite1)
+    endif()
+
     # message(${FFVA_INT_COMPILE_DEFINITIONS})
     
     #**********************
@@ -37,7 +45,7 @@ foreach(FFVA_AP ${FFVA_PIPELINES_INT})
     target_link_libraries(${TARGET_NAME}
         PUBLIC
             ${APP_COMMON_LINK_LIBRARIES}
-            fph::ffva::satellite1
+            ${BOARD_LIB}
             fph::ffva::ap::${PL_NAME}
             sln_voice::app::ffva::sp::passthrough
     )
@@ -57,7 +65,7 @@ foreach(FFVA_AP ${FFVA_PIPELINES_INT})
     target_link_libraries(${TARGET_NAME}
         PUBLIC
             ${APP_COMMON_LINK_LIBRARIES}
-            fph::ffva::satellite1
+            ${BOARD_LIB}
             fph::ffva::ap::${PL_NAME}
             sln_voice::app::ffva::sp::passthrough
     )

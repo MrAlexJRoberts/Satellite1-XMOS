@@ -61,7 +61,7 @@ void speaker_pipeline_input(void *input_app_data,
 
         xassert(frame_count == appconfAUDIO_SPK_PIPELINE_FRAME_ADVANCE);
         /* I2S provides sample channel format */
-        int32_t tmp[appconfAUDIO_SPK_PIPELINE_FRAME_ADVANCE][appconfI2S_AUDIO_INPUTS][appconfAUDIO_PIPELINE_CHANNELS];
+        int32_t tmp[appconfAUDIO_SPK_PIPELINE_FRAME_ADVANCE][appconfI2S_AUDIO_INPUTS][appconfI2S_FRAME_CHANNELS];
         int32_t *tmpptr = (int32_t *)input_audio_frames;
 
         size_t rx_count =
@@ -90,7 +90,7 @@ int speaker_pipeline_output(void *output_app_data,
     xassert(frame_count == appconfAUDIO_SPK_PIPELINE_FRAME_ADVANCE);
     
     /* I2S expects sample channel format */
-    int32_t tmp[appconfAUDIO_SPK_PIPELINE_FRAME_ADVANCE][1][appconfAUDIO_PIPELINE_CHANNELS];
+    int32_t tmp[appconfAUDIO_SPK_PIPELINE_FRAME_ADVANCE][1][appconfI2S_FRAME_CHANNELS];
     int32_t *tmpptr = (int32_t *)output_audio_frames;
     for (int j=0; j<frame_count; j++) {
         tmp[j][0][0] = *(tmpptr+j+(0*frame_count));    // ref 0 -> DAC
@@ -104,13 +104,13 @@ int speaker_pipeline_output(void *output_app_data,
                 portMAX_DELAY);
     
     void* frame_data;
-    frame_data = pvPortMalloc( appconfAUDIO_PIPELINE_FRAME_ADVANCE * appconfAUDIO_PIPELINE_CHANNELS * sizeof( int32_t ));
-    
-    // down sample reference signal to 16kHz if needed 
+    frame_data = pvPortMalloc( appconfAUDIO_PIPELINE_FRAME_ADVANCE * appconfAUDIO_PIPELINE_REF_CHANNELS * sizeof( int32_t ));
+
+    // down sample reference signal to 16kHz if needed
     if (appconfI2S_AUDIO_SAMPLE_RATE == 3*appconfAUDIO_PIPELINE_SAMPLE_RATE) {
         static int64_t sum[2];
         static int32_t src_data[2][SRC_FF3V_FIR_NUM_PHASES][SRC_FF3V_FIR_TAPS_PER_PHASE] __attribute__((aligned (8)));
-        int32_t tmp_out[appconfAUDIO_PIPELINE_FRAME_ADVANCE][1][appconfAUDIO_PIPELINE_CHANNELS];    
+        int32_t tmp_out[appconfAUDIO_PIPELINE_FRAME_ADVANCE][1][appconfAUDIO_PIPELINE_REF_CHANNELS];
         
         for( int frame=0; frame < frame_count; frame +=3 ){
             sum[0] = src_ds3_voice_add_sample(0, src_data[0][0], src_ff3v_fir_coefs[0], tmp[frame][0][0]);
@@ -122,9 +122,9 @@ int speaker_pipeline_output(void *output_app_data,
             tmp_out[frame/3][0][0] = src_ds3_voice_add_final_sample(sum[0], src_data[0][2], src_ff3v_fir_coefs[2], tmp[frame+2][0][0]);
             tmp_out[frame/3][0][1] = src_ds3_voice_add_final_sample(sum[1], src_data[1][2], src_ff3v_fir_coefs[2], tmp[frame+2][0][1]);
         }
-        memcpy( frame_data, tmp_out, appconfAUDIO_PIPELINE_FRAME_ADVANCE * appconfAUDIO_PIPELINE_CHANNELS * sizeof( int32_t ) );
+        memcpy( frame_data, tmp_out, appconfAUDIO_PIPELINE_FRAME_ADVANCE * appconfAUDIO_PIPELINE_REF_CHANNELS * sizeof( int32_t ) );
     } else {
-      memcpy( frame_data, tmp, appconfAUDIO_PIPELINE_FRAME_ADVANCE * appconfAUDIO_PIPELINE_CHANNELS * sizeof( int32_t ) );
+      memcpy( frame_data, tmp, appconfAUDIO_PIPELINE_FRAME_ADVANCE * appconfAUDIO_PIPELINE_REF_CHANNELS * sizeof( int32_t ) );
     }
     
     // send to microphone pipeline as reference
@@ -142,7 +142,12 @@ void audio_pipeline_input(void *input_app_data,
                         size_t frame_count)
 {
     (void) input_app_data;
-    int32_t **mic_ptr = (int32_t **)(input_audio_frames + (2 * frame_count));
+    /* Frame layout: [reference channels][microphone channels], channel-major.
+     * Offset in samples, not in (int32_t *) units: the two are only the same
+     * size on 32-bit targets. */
+    int32_t *mic_data = (int32_t *)input_audio_frames +
+                        (appconfAUDIO_PIPELINE_REF_CHANNELS * frame_count);
+    int32_t **mic_ptr = (int32_t **)mic_data;
 
     static int flushed;
     while (!flushed) {
@@ -184,7 +189,7 @@ void audio_pipeline_input(void *input_app_data,
                       portMAX_DELAY);
 
     int32_t *mic_samples = (int32_t *)mic_ptr;
-    for (size_t i = 0; i < appconfAUDIO_PIPELINE_CHANNELS * frame_count; ++i) {
+    for (size_t i = 0; i < appconfAUDIO_PIPELINE_MIC_CHANNELS * frame_count; ++i) {
         mic_samples[i] = mic_gain_10x(mic_samples[i]);
     }
 
@@ -202,24 +207,25 @@ int audio_pipeline_output(void *output_app_data,
 
     xassert(frame_count == appconfAUDIO_PIPELINE_FRAME_ADVANCE);
     /* I2S expects sample channel format */
-    int32_t tmp[appconfAUDIO_SPK_PIPELINE_FRAME_ADVANCE][1][appconfAUDIO_PIPELINE_CHANNELS];
+    int32_t tmp[appconfAUDIO_SPK_PIPELINE_FRAME_ADVANCE][1][appconfI2S_FRAME_CHANNELS];
     int32_t *tmpptr = (int32_t *)output_audio_frames;
-     
-     // 0 : proc 0, AEC+IC+NS+AGC audio
-     // 1 : proc 1, mic 1 audio with AEC applied
-     // 2 : ref 0, overwritten by AEC+IC output
-     // 3 : ref 1, overwritten by AEC+IC+NS output
-     // 4 : mic 0
-     // 5 : mic 1
 
-     if (appconfI2S_AUDIO_SAMPLE_RATE == 3*appconfAUDIO_PIPELINE_SAMPLE_RATE) {    
+     // Frame layout (P = appconfAUDIO_PIPELINE_PROC_CHANNELS, 2 in the
+     // production build, so the indices below are 0..5 there):
+     // 0     : proc 0, AEC+IC+NS+AGC audio
+     // 1..P-1: further processed channels (production: mic 1 with AEC applied)
+     // P     : ref 0, overwritten by AEC+IC output
+     // P+1   : ref 1, overwritten by AEC+IC+NS output
+     // P+2.. : raw microphones
+
+     if (appconfI2S_AUDIO_SAMPLE_RATE == 3*appconfAUDIO_PIPELINE_SAMPLE_RATE) {
         // duplicate to 48kHz
         for( int in_frame=0, out_frame=0; in_frame < frame_count; in_frame++, out_frame += 3 ){
-            // CONF_CHANNEL_0_STAGE : AGC : AEC+IC+NS+AGC : indx 0       
-            int32_t smpl_ch0 = *(tmpptr + in_frame + (0 * frame_count));
-            
-            // CONF_CHANNEL_1_STAGE : NS :  AEC+IC+NS : indx 3       
-            int32_t smpl_ch1 = *(tmpptr + in_frame + (3 * frame_count));
+            // CONF_CHANNEL_0_STAGE : AGC : AEC+IC+NS+AGC : indx 0
+            int32_t smpl_ch0 = *(tmpptr + in_frame + (appconfAUDIO_PIPELINE_OUT_IDX_AGC * frame_count));
+
+            // CONF_CHANNEL_1_STAGE : NS :  AEC+IC+NS : indx P+1
+            int32_t smpl_ch1 = *(tmpptr + in_frame + (appconfAUDIO_PIPELINE_OUT_IDX_NS * frame_count));
             
             tmp[out_frame][0][0] = smpl_ch0;
             tmp[out_frame][0][1] = smpl_ch1;
@@ -230,8 +236,8 @@ int audio_pipeline_output(void *output_app_data,
         }
     } else {
         for (int j=0; j<frame_count; j++) {
-            tmp[j][0][0] = *(tmpptr+j+(0*frame_count));    // (AEC+IC+NS+AGC) -> ESP32
-            tmp[j][0][1] = *(tmpptr+j+(3*frame_count));    // (AEC+IC+NS) -> ESP32
+            tmp[j][0][0] = *(tmpptr+j+(appconfAUDIO_PIPELINE_OUT_IDX_AGC*frame_count));    // (AEC+IC+NS+AGC) -> ESP32
+            tmp[j][0][1] = *(tmpptr+j+(appconfAUDIO_PIPELINE_OUT_IDX_NS*frame_count));     // (AEC+IC+NS) -> ESP32
         }
     }    
     

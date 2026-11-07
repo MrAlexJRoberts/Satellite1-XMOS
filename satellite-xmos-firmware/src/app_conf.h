@@ -24,6 +24,38 @@
 #define appconfAUDIO_PIPELINE_SAMPLE_RATE       16000
 #define appconfAUDIO_PIPELINE_CHANNELS          MIC_ARRAY_CONFIG_MIC_COUNT
 
+/*
+ * Channel counts. appconfAUDIO_PIPELINE_CHANNELS was used both for the number
+ * of PDM microphones and for unrelated 2-channel layouts (I2S frames, the
+ * loudspeaker reference). The constants below separate those uses so the
+ * microphone count can change. In the 2-mic production build every one of
+ * them is 2, so generated code is unchanged there.
+ */
+#define appconfAUDIO_PIPELINE_MIC_CHANNELS      MIC_ARRAY_CONFIG_MIC_COUNT
+#define appconfAUDIO_PIPELINE_REF_CHANNELS      2   /* stereo loudspeaker reference from the speaker path */
+#define appconfAUDIO_SPK_CHANNELS               2   /* speaker path channels (stereo) */
+#define appconfI2S_FRAME_CHANNELS               2   /* samples per I2S frame on one data line (stereo) */
+
+/* Channels carried from tile 1 to tile 0 in frame_data_t.samples. */
+#ifndef appconfAUDIO_PIPELINE_PROC_CHANNELS
+#define appconfAUDIO_PIPELINE_PROC_CHANNELS     2
+#endif
+
+/*
+ * Frame layout handed to audio_pipeline_output() by every reference pipeline:
+ * samples[PROC], aec_reference_audio_samples[REF], mic_samples_passthrough[MIC].
+ * Index of the processed output in lane 0 and of the NS-only audio (stored in
+ * reference slot 1) in lane 1 of the I2S output to the ESP32.
+ */
+#define appconfAUDIO_PIPELINE_OUT_IDX_AGC       0
+#define appconfAUDIO_PIPELINE_OUT_IDX_NS        (appconfAUDIO_PIPELINE_PROC_CHANNELS + 1)
+
+/* Extra device-control servicers registered by the selected audio pipeline
+ * (the array diagnostics servicer in the four-mic builds). */
+#ifndef appconfARRAY_DIAG_SERVICER_COUNT
+#define appconfARRAY_DIAG_SERVICER_COUNT        0
+#endif
+
 #ifndef appconfAUDIO_SPK_PL_SR_FACTOR
 #define appconfAUDIO_SPK_PL_SR_FACTOR           3
 #endif

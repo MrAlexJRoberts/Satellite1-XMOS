@@ -1,0 +1,2 @@
+satellite1_4mic     satellite1_firmware_fixed_delay_4mic    No  SATELLITE1   xmos_cmake_toolchain/xs3a.cmake
+satellite1_4mic_bf  satellite1_firmware_fixed_delay_4mic_bf No  SATELLITE1   xmos_cmake_toolchain/xs3a.cmake

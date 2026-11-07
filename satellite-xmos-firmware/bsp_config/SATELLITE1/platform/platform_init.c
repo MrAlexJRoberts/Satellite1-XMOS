@@ -97,11 +97,15 @@ static void spi_init(void)
                         PORT_XSPI_MISO,
                         PORT_XSPI_CS);
     
+    /* The host waits for exactly this many servicers to register before it
+     * reports ready (device_control_resources_register()), so the count must
+     * match the servicers actually started: GPIO, DFU, LED ring, plus any
+     * started by the audio pipeline. */
     device_control_init(device_control_spi_ctx,
                         DEVICE_CONTROL_HOST_MODE,
-                        3, //number of servicers
+                        3 + appconfARRAY_DIAG_SERVICER_COUNT, //number of servicers
                         client_intertile_ctx,
-                        1); 
+                        1);
     
     device_control_start(device_control_spi_ctx,
                          appconfSPI_DEV_CTRL_PORT,

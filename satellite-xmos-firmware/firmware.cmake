@@ -66,6 +66,8 @@ if(ENABLE_ALL_FFVA_PIPELINES)
         adec
         adec_altarch
         empty
+        fixed_delay_4mic
+        fixed_delay_4mic_bf
     )
 
     set(FFVA_PIPELINES_UA
@@ -79,6 +81,8 @@ else()
         adec
         fixed_delay
         bypass
+        fixed_delay_4mic
+        fixed_delay_4mic_bf
     )
 
     set(FFVA_PIPELINES_UA
